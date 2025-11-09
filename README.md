@@ -4,4 +4,4 @@ Esta app permite visualizar y localizar sectores y salas dentro del campus de la
 
 ## Imagenes
 
-![Captura de ejemplo](https://imgur.com/a/NWRU7Tr)
+![Captura de ejemplo]assets/imagenes/Captura de pantalla 2025-11-08 225006.png
