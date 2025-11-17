@@ -3,10 +3,17 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const UCMMapApp());
 }
+
 
 class UCMMapApp extends StatelessWidget {
   const UCMMapApp({super.key});
@@ -232,9 +239,9 @@ class _MainMapPageState extends State<MainMapPage> {
       final c = _centroid(s.coordenadas);
       return Marker(
         point: c,
-        width: 38,
-        height: 38,
-        builder: (_) => GestureDetector(
+        //width: 38,
+        //height: 38,
+        child: GestureDetector(
           onTap: () {
             setState(() {
               _sectorSeleccionado = s;
@@ -242,6 +249,8 @@ class _MainMapPageState extends State<MainMapPage> {
             _scaffoldKey.currentState?.openEndDrawer();
           },
           child: Container(
+            width:  38,
+            height: 38,
             decoration: BoxDecoration(
               color: Colors.indigo,
               shape: BoxShape.circle,
