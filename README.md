@@ -1,7 +1,6 @@
 # UCM Mapp App
 
 Esta app permite visualizar y localizar sectores y salas dentro del campus de la Universidad Católica del Maule.
-Mientras el backend Flask se encuentra en desarrollo, se definieron listas locales con información de sectores y salas, lo que permite probar la interfaz sin necesidad de una conexión a base de datos.
 
 ## Tecnologías
 - Flutter
