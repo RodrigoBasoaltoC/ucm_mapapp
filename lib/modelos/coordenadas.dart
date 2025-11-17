@@ -1,5 +1,3 @@
-import 'package:flutter/material.dart';
-
 class CoordenadaModel {
   final int id;
   final int idSector;

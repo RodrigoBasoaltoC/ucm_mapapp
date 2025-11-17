@@ -21,21 +21,21 @@ class _MainMapPageState extends State<MainMapPage> {
   // Scaffold key para abrir endDrawer de los marcadores
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  // Map controller and center
+  // Controlador de mapas y centro
   final MapController _mapController = MapController();
   final LatLng _campusCenter = LatLng(-35.435352, -71.620956);
 
-  // Data containers
+  // Los contenedores de los datos
   List<SectorModel> _sectores = [];
   List<SalasModel> _salas = [];
   List<CoordenadaModel> _coordenadas = [];
 
-  // UI state
+  // estado UI
   bool _loading = true;
   String? _errorMessage; // if not null show a banner but keep map usable
   SectorModel? _sectorSeleccionado;
 
-  // Endpoints (from your message)
+  // Endpoints
   final String _urlSalas = 'http://ckestreltesting.alwaysdata.net/api/salas/';
   final String _urlSectores = 'http://ckestreltesting.alwaysdata.net/api/sectores/';
   final String _urlCoordenadas = 'http://ckestreltesting.alwaysdata.net/api/sector_coordenadas/';
@@ -53,14 +53,14 @@ class _MainMapPageState extends State<MainMapPage> {
     });
 
     try {
-      // Parallel fetch
+      // fetch paralelo
       final responses = await Future.wait([
         http.get(Uri.parse(_urlSectores)),
         http.get(Uri.parse(_urlSalas)),
         http.get(Uri.parse(_urlCoordenadas)),
       ]);
 
-      // Validate responses
+      // validar respuestas
       if (responses.any((r) => r.statusCode != 200)) {
         throw Exception('One or more endpoints returned non-200 status.');
       }
@@ -70,7 +70,7 @@ class _MainMapPageState extends State<MainMapPage> {
       final List<dynamic> jsonSalas = jsonDecode(responses[1].body);
       final List<dynamic> jsonCoords = jsonDecode(responses[2].body);
 
-      // Build sector list (without coords and salas yet)
+      // Crear lista de sectores (sin coordenadas ni salas todavía)
       final Map<int, SectorModel> sectoresMap = {};
       for (final s in jsonSectores) {
         final id = (s['id'] is int) ? s['id'] as int : int.parse('${s['id']}');
@@ -79,7 +79,7 @@ class _MainMapPageState extends State<MainMapPage> {
         sectoresMap[id] = SectorModel(id: id, nombre: nombre, descripcion: descripcion);
       }
 
-      // Parse salas and assign to proper sector by id_sector
+      // Parse salas y asignar a sector correcto en base a id_sector
       _salas = jsonSalas.map((e) {
         final id = (e['id'] is int) ? e['id'] as int : int.parse('${e['id']}');
         final idSector = (e['id_sector'] is int) ? e['id_sector'] as int : int.parse('${e['id_sector']}');
@@ -92,7 +92,7 @@ class _MainMapPageState extends State<MainMapPage> {
         return sala;
       }).toList();
 
-      // Parse coordenadas and assign; keep orden_punto to sort later
+      // Parse coordenadas y asignar; mantener orden_punto para ordenar después
       _coordenadas = jsonCoords.map((e) {
         final id = (e['id'] is int) ? e['id'] as int : int.parse('${e['id']}');
         final idSector = (e['id_sector'] is int) ? e['id_sector'] as int : int.parse('${e['id_sector']}');
@@ -106,20 +106,20 @@ class _MainMapPageState extends State<MainMapPage> {
         return coord;
       }).toList();
 
-      // For each sector, sort coordenadasRaw by ordenPunto and create LatLng list
+      // Para cada sector, sort coordenadasRaw por ordenPunto y crear lista LatLng
       for (final sector in sectoresMap.values) {
         sector.coordenadasRaw.sort((a, b) => a.ordenPunto.compareTo(b.ordenPunto));
         sector.coordenadas = sector.coordenadasRaw.map((c) => LatLng(c.latitud, c.longitud)).toList();
       }
 
-      // Save sectors into the state (list)
+      // Guardar sectores en el estado (list)
       setState(() {
         _sectores = sectoresMap.values.toList();
         _loading = false;
         _errorMessage = null;
       });
     } catch (e) {
-      // Option B: show error message but leave the (empty) map usable
+      // Mostrar mensaje de error dejando el mapa vacio pero usable
       setState(() {
         _loading = false;
         _errorMessage = 'Error cargando datos: ${e.toString()}';
@@ -128,7 +128,7 @@ class _MainMapPageState extends State<MainMapPage> {
     }
   }
 
-  // Centroid for polygon to place marker
+  // Centroide del poligono para colocar el marcador
   LatLng _centroid(List<LatLng> poly) {
     if (poly.isEmpty) return _campusCenter;
     double lat = 0, lng = 0;
@@ -139,7 +139,7 @@ class _MainMapPageState extends State<MainMapPage> {
     return LatLng(lat / poly.length, lng / poly.length);
   }
 
-  // Floors for selected sector (sorted descending to match earlier behavior if desired)
+  //Pisos para sector seleccionado (ordenados de forma descendente)
   List<int> _getPisos(SectorModel sector) {
     final floors = sector.salas.map((s) => s.piso).toSet().toList();
     floors.sort((a, b) => b.compareTo(a));
@@ -148,7 +148,7 @@ class _MainMapPageState extends State<MainMapPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Build polygon list from _sectores
+    // Construir lista de poligonos a partir de _sectores
     final polygons = _sectores
         .where((s) => s.coordenadas.isNotEmpty)
         .map((s) => Polygon(
@@ -165,8 +165,6 @@ class _MainMapPageState extends State<MainMapPage> {
       final c = _centroid(s.coordenadas);
       return Marker(
         point: c,
-        //width: 38,
-        //height: 38,
         child: GestureDetector(
           onTap: () {
             setState(() {
@@ -226,7 +224,7 @@ class _MainMapPageState extends State<MainMapPage> {
             ],
           ),
 
-          // Loading overlay while fetching for better UX
+          // Cargar overlay durante la busqueda para una mejor UX
           if (_loading)
             Positioned.fill(
               child: Container(
@@ -235,7 +233,7 @@ class _MainMapPageState extends State<MainMapPage> {
               ),
             ),
 
-          // Error banner at top (non-blocking) — option B: map still usable
+          // banner de error arriba, mapa aun es usable
           if (_errorMessage != null)
             Positioned(
               left: 8,
@@ -275,7 +273,7 @@ class _MainMapPageState extends State<MainMapPage> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // Center map to campus center
+          // Centrar mapa a la universidad
           _mapController.move(_campusCenter, 17.5);
         },
         backgroundColor: const Color(0xFF003B73),
@@ -347,7 +345,7 @@ class _MainMapPageState extends State<MainMapPage> {
                         title: Text(r.nombre),
                         leading: const Icon(Icons.meeting_room, color: Color(0xFF003B73)),
                         onTap: () {
-                          // Example: show snackbar (replace with desired behaviour)
+                          // Ejemplo: mostrar snackbar (reemplazar con comportamiento deseado)
                           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Seleccionada ${r.nombre}')));
                         },
                       ))
