@@ -1,3 +1,4 @@
+/*
 import 'package:flutter/material.dart';
 import 'main_map_page.dart';
 
@@ -32,3 +33,5 @@ class SplashScreen extends StatelessWidget {
     );
   }
 }
+
+*/

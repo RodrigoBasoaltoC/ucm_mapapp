@@ -4,11 +4,14 @@ import 'package:latlong2/latlong.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
 
 import '../modelos/coordenadas.dart';
 import '../modelos/salas.dart';
 import '../modelos/sector.dart';
-import 'login_page.dart';
+import '../servicios/auth_service.dart';
+import '../themes/theme_model.dart';
+//import 'login_page.dart';
 
 class MainMapPage extends StatefulWidget {
   const MainMapPage({super.key});
@@ -20,6 +23,7 @@ class MainMapPage extends StatefulWidget {
 class _MainMapPageState extends State<MainMapPage> {
   // Scaffold key para abrir endDrawer de los marcadores
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final AuthService _authService = AuthService (); // Instancia del servicio de autenticación
 
   // Controlador de mapas y centro
   final MapController _mapController = MapController();
@@ -146,6 +150,56 @@ class _MainMapPageState extends State<MainMapPage> {
     return floors;
   }
 
+  Widget _buildAppDrawer(BuildContext context) {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          const DrawerHeader(
+            decoration: BoxDecoration(
+              color: Color(0xFF003B73),
+            ),
+            child: Text(
+              'UCM MapApp',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+              ),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.person_outline),
+            title: const Text('Datos de Usuario'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, '/profile');
+            },
+          ),
+          // Botón para cambiar el tema
+          Consumer<ThemeModel>(
+            builder: (context, themeNotifier, child) => ListTile(
+              leading: Icon(themeNotifier.isDark ? Icons.nightlight_round : Icons.wb_sunny),
+              title: Text(themeNotifier.isDark ? 'Modo Oscuro' : 'Modo Claro'),
+              onTap: () {
+                themeNotifier.isDark = !themeNotifier.isDark;
+              },
+            ),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Cerrar Sesión', style: TextStyle(color: Colors.red)),
+            onTap: () {
+              _authService.signOut();
+              // La navegación ahora la maneja AuthGate después de que el estado cambia
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Construir lista de poligonos a partir de _sectores
@@ -192,10 +246,10 @@ class _MainMapPageState extends State<MainMapPage> {
       appBar: AppBar(
         title: const Text('UCM MapApp'),
         actions: [
-          IconButton(
+          /*IconButton(
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoginPage())),
             icon: const Icon(Icons.login),
-          ),
+          ),*/
           IconButton(
             onPressed: () => _cargarDatos(),
             icon: const Icon(Icons.refresh),
@@ -203,6 +257,7 @@ class _MainMapPageState extends State<MainMapPage> {
           ),
         ],
       ),
+      drawer: _buildAppDrawer(context),
       endDrawerEnableOpenDragGesture: false,
       endDrawer: _buildEndDrawer(context),
       body: Stack(
