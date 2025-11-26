@@ -10,8 +10,9 @@ Esta app permite visualizar y localizar sectores y salas dentro del campus de la
 
 ## Requisitos
 - Flutter SDK 3.x o superior.
-- Android Studio / Visual Studio Code configurado con el plugin de Flutter.
+- Android Studio / Visual Studio Code configurado con el plugin de Flutter y Dart.
 - Un **emulador Android** o un **dispositivo físico** conectado por USB
+- Node.js
 
 ### Pasos para ejecutar
 
