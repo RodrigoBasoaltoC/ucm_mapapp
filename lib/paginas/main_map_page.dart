@@ -14,7 +14,8 @@ import '../themes/theme_model.dart';
 //import 'login_page.dart';
 
 class MainMapPage extends StatefulWidget {
-  const MainMapPage({super.key});
+  final bool isGuest;
+  const MainMapPage({super.key, this.isGuest = false});
 
   @override
   State<MainMapPage> createState() => _MainMapPageState();
@@ -256,6 +257,8 @@ class _MainMapPageState extends State<MainMapPage> {
             tooltip: 'Recargar datos',
           ),
         ],
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
       ),
       drawer: _buildAppDrawer(context),
       endDrawerEnableOpenDragGesture: false,

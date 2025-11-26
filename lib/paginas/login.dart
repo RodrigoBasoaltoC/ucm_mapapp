@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide EmailAuthProvider, AuthProvider;
 import 'package:firebase_ui_auth/firebase_ui_auth.dart';
 import 'package:firebase_ui_oauth_google/firebase_ui_oauth_google.dart';
+import 'package:ucm_mapp_app/paginas/main_map_page.dart';
 import '../firestore.dart';
 
 
@@ -75,13 +76,15 @@ class _SignInPageState extends State<SignInPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("Hola,\nbienvenido de nuevo",
+
+              Text("Hola, bienvenido de nuevo",
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold),
               ),
               Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const SizedBox(height: 50,),
+                  Image.asset('assets/imagenes/UCMMAPAPP2.png', height: 150, width: 150),
+                  const SizedBox(height: 30,),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
                     decoration: BoxDecoration(
@@ -89,6 +92,7 @@ class _SignInPageState extends State<SignInPage> {
                         borderRadius: const BorderRadius.all(Radius.circular(20))
                     ),
                     child: TextField(
+                      key: const Key('emailField'),
                       controller: _emailController,
                       decoration: const InputDecoration(
                           border: InputBorder.none,
@@ -104,6 +108,7 @@ class _SignInPageState extends State<SignInPage> {
                         borderRadius: const BorderRadius.all(Radius.circular(20))
                     ),
                     child: TextField(
+                      key: const Key('passwordField'),
                       controller: _passwordController,
                       obscureText: true,
                       decoration: const InputDecoration(
@@ -112,38 +117,42 @@ class _SignInPageState extends State<SignInPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20,),
-                  GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ForgotPasswordScreen(
-                              email: _emailController.text,
+                  const SizedBox(height: 20),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ForgotPasswordScreen(
+                                email: _emailController.text,
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                      child: Text("¿Olvidaste tu contraseña?", style: Theme.of(context).textTheme.bodyLarge,)
-                  )
+                          );
+                        },
+                        child: Text("¿Olvidaste tu contraseña?", style: Theme.of(context).textTheme.bodyLarge,)
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(key: const Key('loginButton'),
+                    onPressed: _isLoading ? null : _signInWithEmail,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      elevation: 5,
+                      padding: const EdgeInsets.all(18),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    child: _isLoading
+                      ? const CircularProgressIndicator()
+                      : const Text("Iniciar sesión")
+                  ),
                 ],
               ),
               Column(
                 children: [
-                  MaterialButton(
-                    onPressed: _isLoading ? null : _signInWithEmail,
-                    elevation: 0,
-                    padding: const EdgeInsets.all(18),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20)
-                    ),
-                    color: Colors.blue,
-                    child: Center(
-                        child: _isLoading
-                            ? const CircularProgressIndicator(color: Colors.white)
-                            : const Text("Iniciar sesión", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),)),
-                  ),
-                  const SizedBox(height: 30,),
                   GestureDetector(
                       onTap: () {
                         Navigator.push(
@@ -155,7 +164,27 @@ class _SignInPageState extends State<SignInPage> {
                       },
                       child: Text("Crear cuenta", style: Theme.of(context).textTheme.bodyLarge)
                   ),
-                  const SizedBox(height: 30,),
+                  const SizedBox(height: 30),
+                  ElevatedButton(key: const Key('guestButton'),
+                    onPressed: (){
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => const MainMapPage(isGuest: true)
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      elevation: 5,
+                      padding: const EdgeInsets.all(18),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    child: const Text("Ingresar como invitado")
+                  ),
+                  const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -166,7 +195,7 @@ class _SignInPageState extends State<SignInPage> {
                     ],
                   ),
                 ],
-              )
+              ),
             ],
           ),
         ),
