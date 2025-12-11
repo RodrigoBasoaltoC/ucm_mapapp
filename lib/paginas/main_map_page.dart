@@ -10,8 +10,14 @@ import '../modelos/coordenadas.dart';
 import '../modelos/salas.dart';
 import '../modelos/sector.dart';
 import '../servicios/auth_service.dart';
+import '../servicios/location_service.dart';
+import '../servicios/routing_service.dart';
 import '../themes/theme_model.dart';
 //import 'login_page.dart';
+import 'package:geolocator/geolocator.dart';
+import 'dart:async';
+//import '../services/routing_service.dart';
+//import '../services/location_service.dart';
 
 class MainMapPage extends StatefulWidget {
   final bool isGuest;
@@ -22,25 +28,31 @@ class MainMapPage extends StatefulWidget {
 }
 
 class _MainMapPageState extends State<MainMapPage> {
-  // Scaffold key para abrir endDrawer de los marcadores
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final AuthService _authService = AuthService (); // Instancia del servicio de autenticación
-
-  // Controlador de mapas y centro
   final MapController _mapController = MapController();
   final LatLng _campusCenter = LatLng(-35.435352, -71.620956);
 
-  // Los contenedores de los datos
+  // Datos
   List<SectorModel> _sectores = [];
   List<SalasModel> _salas = [];
   List<CoordenadaModel> _coordenadas = [];
 
-  // estado UI
+  // Estado UI
   bool _loading = true;
-  String? _errorMessage; // if not null show a banner but keep map usable
+  String? _errorMessage;
   SectorModel? _sectorSeleccionado;
 
-  // Endpoints
+  // Búsqueda
+  final TextEditingController _searchController = TextEditingController();
+  List<SalasModel> _searchResults = [];
+  Timer? _debounce;
+
+  // Rutas
+  List<LatLng>? _ruta; // polyline points
+  LatLng? _rutaDestinoCentroide; // destino de la ruta (centroide de sector)
+  LatLng? _userLocation;
+
+  // Endpoints (ajusta si cambian)
   final String _urlSalas = 'http://ckestreltesting.alwaysdata.net/api/salas/';
   final String _urlSectores = 'http://ckestreltesting.alwaysdata.net/api/sectores/';
   final String _urlCoordenadas = 'http://ckestreltesting.alwaysdata.net/api/sector_coordenadas/';
@@ -51,6 +63,13 @@ class _MainMapPageState extends State<MainMapPage> {
     _cargarDatos();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
   Future<void> _cargarDatos() async {
     setState(() {
       _loading = true;
@@ -58,24 +77,21 @@ class _MainMapPageState extends State<MainMapPage> {
     });
 
     try {
-      // fetch paralelo
       final responses = await Future.wait([
         http.get(Uri.parse(_urlSectores)),
         http.get(Uri.parse(_urlSalas)),
         http.get(Uri.parse(_urlCoordenadas)),
       ]);
 
-      // validar respuestas
       if (responses.any((r) => r.statusCode != 200)) {
         throw Exception('One or more endpoints returned non-200 status.');
       }
 
-      // Parse JSON
       final List<dynamic> jsonSectores = jsonDecode(responses[0].body);
       final List<dynamic> jsonSalas = jsonDecode(responses[1].body);
       final List<dynamic> jsonCoords = jsonDecode(responses[2].body);
 
-      // Crear lista de sectores (sin coordenadas ni salas todavía)
+      // Construir map de sectores
       final Map<int, SectorModel> sectoresMap = {};
       for (final s in jsonSectores) {
         final id = (s['id'] is int) ? s['id'] as int : int.parse('${s['id']}');
@@ -84,20 +100,19 @@ class _MainMapPageState extends State<MainMapPage> {
         sectoresMap[id] = SectorModel(id: id, nombre: nombre, descripcion: descripcion);
       }
 
-      // Parse salas y asignar a sector correcto en base a id_sector
+      // Parse salas
       _salas = jsonSalas.map((e) {
         final id = (e['id'] is int) ? e['id'] as int : int.parse('${e['id']}');
         final idSector = (e['id_sector'] is int) ? e['id_sector'] as int : int.parse('${e['id_sector']}');
         final nombre = e['nombre']?.toString() ?? '';
         final piso = (e['piso'] is int) ? e['piso'] as int : int.parse('${e['piso']}');
         final sala = SalasModel(id: id, idSector: idSector, nombre: nombre, piso: piso);
-        // assign to sector
         final sector = sectoresMap[idSector];
         if (sector != null) sector.salas.add(sala);
         return sala;
       }).toList();
 
-      // Parse coordenadas y asignar; mantener orden_punto para ordenar después
+      // Parse coordenadas
       _coordenadas = jsonCoords.map((e) {
         final id = (e['id'] is int) ? e['id'] as int : int.parse('${e['id']}');
         final idSector = (e['id_sector'] is int) ? e['id_sector'] as int : int.parse('${e['id_sector']}');
@@ -105,35 +120,32 @@ class _MainMapPageState extends State<MainMapPage> {
         final lng = (e['longitud'] is num) ? (e['longitud'] as num).toDouble() : double.parse('${e['longitud']}');
         final orden = (e['orden_punto'] is int) ? e['orden_punto'] as int : int.parse('${e['orden_punto']}');
         final coord = CoordenadaModel(id: id, idSector: idSector, latitud: lat, longitud: lng, ordenPunto: orden);
-        // assign to sector
         final sector = sectoresMap[idSector];
         if (sector != null) sector.coordenadasRaw.add(coord);
         return coord;
       }).toList();
 
-      // Para cada sector, sort coordenadasRaw por ordenPunto y crear lista LatLng
+      // Ordenar y convertir coordenadas
       for (final sector in sectoresMap.values) {
         sector.coordenadasRaw.sort((a, b) => a.ordenPunto.compareTo(b.ordenPunto));
         sector.coordenadas = sector.coordenadasRaw.map((c) => LatLng(c.latitud, c.longitud)).toList();
       }
 
-      // Guardar sectores en el estado (list)
       setState(() {
         _sectores = sectoresMap.values.toList();
         _loading = false;
         _errorMessage = null;
       });
     } catch (e) {
-      // Mostrar mensaje de error dejando el mapa vacio pero usable
       setState(() {
         _loading = false;
         _errorMessage = 'Error cargando datos: ${e.toString()}';
-        _sectores = []; // keep empty so map is usable
+        _sectores = [];
       });
     }
   }
 
-  // Centroide del poligono para colocar el marcador
+  // Centroid calc
   LatLng _centroid(List<LatLng> poly) {
     if (poly.isEmpty) return _campusCenter;
     double lat = 0, lng = 0;
@@ -144,66 +156,106 @@ class _MainMapPageState extends State<MainMapPage> {
     return LatLng(lat / poly.length, lng / poly.length);
   }
 
-  //Pisos para sector seleccionado (ordenados de forma descendente)
-  List<int> _getPisos(SectorModel sector) {
-    final floors = sector.salas.map((s) => s.piso).toSet().toList();
-    floors.sort((a, b) => b.compareTo(a));
-    return floors;
+  // Buscar sala (filtrado simple)
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 200), () {
+      final q = value.trim().toLowerCase();
+      if (q.isEmpty) {
+        setState(() {
+          _searchResults = [];
+        });
+        return;
+      }
+      final results = _salas.where((s) => s.nombre.toLowerCase().contains(q)).toList();
+      setState(() {
+        _searchResults = results;
+      });
+    });
   }
 
-  Widget _buildAppDrawer(BuildContext context) {
-    return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          const DrawerHeader(
-            decoration: BoxDecoration(
-              color: Color(0xFF003B73),
+  // Cuando seleccionas una sala de los resultados
+  void _onSalaSelected(SalasModel sala) {
+    final sector = _sectores.firstWhere((s) => s.id == sala.idSector, orElse: () => throw Exception('Sector no encontrado'));
+    final centro = _centroid(sector.coordenadas);
+
+    // centrar y abrir drawer del sector
+    _mapController.move(centro, 18.0);
+    setState(() {
+      _sectorSeleccionado = sector;
+      _searchResults = [];
+      _searchController.text = sala.nombre;
+    });
+    //_scaffoldKey.currentState?.openEndDrawer();
+
+    // Mostrar opción rápida de ruta (BottomSheet)
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Sala seleccionada: ${sala.nombre}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.directions),
+                  label: const Text('Mostrar ruta desde mi ubicación'),
+                  onPressed: () async {
+                    Navigator.of(ctx).pop();
+                    await _crearRutaHaciaSector(sector);
+                  },
+                ),
+              ],
             ),
-            child: Text(
-              'UCM MapApp',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-              ),
-            ),
           ),
-          ListTile(
-            leading: const Icon(Icons.person_outline),
-            title: const Text('Datos de Usuario'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.pushNamed(context, '/profile');
-            },
-          ),
-          // Botón para cambiar el tema
-          Consumer<ThemeModel>(
-            builder: (context, themeNotifier, child) => ListTile(
-              leading: Icon(themeNotifier.isDark ? Icons.nightlight_round : Icons.wb_sunny),
-              title: Text(themeNotifier.isDark ? 'Modo Oscuro' : 'Modo Claro'),
-              onTap: () {
-                themeNotifier.isDark = !themeNotifier.isDark;
-              },
-            ),
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text('Cerrar Sesión', style: TextStyle(color: Colors.red)),
-            onTap: () {
-              _authService.signOut();
-              // La navegación ahora la maneja AuthGate después de que el estado cambia
-              Navigator.of(context).popUntil((route) => route.isFirst);
-            },
-          ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  // Crear ruta: obtiene ubicación, pide ruta a ORS y dibuja polyline
+  Future<void> _crearRutaHaciaSector(SectorModel sector) async {
+    setState(() {
+      _loading = true;
+    });
+
+    try {
+      final destino = _centroid(sector.coordenadas);
+      // obtener ubicación del usuario
+      final userPos = await LocationService.obtenerUbicacionActual();
+      _userLocation = userPos;
+      // pedir ruta a ORS
+      final ruta = await RoutingService.obtenerRutaORS(origen: userPos, destino: destino);
+
+      // actualizar estado para dibujar ruta
+      setState(() {
+        _ruta = ruta;
+        _rutaDestinoCentroide = destino;
+        _loading = false;
+        _sectorSeleccionado = sector; // mantener seleccionado
+      });
+
+      // centrar mapa para que ruta sea visible (mover al centro de la ruta)
+      final mid = ruta[ruta.length ~/ 2];
+      _mapController.move(mid, 17.5);
+    } catch (e) {
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo crear ruta: ${e.toString()}')));
+    }
+  }
+
+  void _clearRuta() {
+    setState(() {
+      _ruta = null;
+      _rutaDestinoCentroide = null;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // Construir lista de poligonos a partir de _sectores
     final polygons = _sectores
         .where((s) => s.coordenadas.isNotEmpty)
         .map((s) => Polygon(
@@ -216,24 +268,24 @@ class _MainMapPageState extends State<MainMapPage> {
 
     final markers = _sectores
         .where((s) => s.coordenadas.isNotEmpty)
-        .map((s) {
+        .map<Marker>((s) {
       final c = _centroid(s.coordenadas);
+
       return Marker(
         point: c,
+        width: 38,
+        height: 38,
         child: GestureDetector(
           onTap: () {
-            setState(() {
-              _sectorSeleccionado = s;
-            });
+            setState(() => _sectorSeleccionado = s);
             _scaffoldKey.currentState?.openEndDrawer();
           },
           child: Container(
-            width:  38,
+            width: 38,
             height: 38,
             decoration: BoxDecoration(
               color: Colors.indigo,
               shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
             ),
             child: const Icon(Icons.location_city, color: Colors.white, size: 18),
           ),
@@ -245,22 +297,27 @@ class _MainMapPageState extends State<MainMapPage> {
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
-        title: const Text('UCM MapApp'),
+        title: Image.asset(
+          'assets/imagenes/UCMMAPAPP2.png',
+          height:70,
+        ),
+        toolbarHeight: 80,
+        centerTitle: true,
         actions: [
-          /*IconButton(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LoginPage())),
-            icon: const Icon(Icons.login),
-          ),*/
           IconButton(
-            onPressed: () => _cargarDatos(),
+            onPressed: _cargarDatos,
             icon: const Icon(Icons.refresh),
             tooltip: 'Recargar datos',
           ),
+          if (_ruta != null)
+            IconButton(
+              onPressed: _clearRuta,
+              icon: const Icon(Icons.clear),
+              tooltip: 'Quitar ruta',
+            ),
         ],
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+          backgroundColor: Color(0xFF003B73)
       ),
-      drawer: _buildAppDrawer(context),
       endDrawerEnableOpenDragGesture: false,
       endDrawer: _buildEndDrawer(context),
       body: Stack(
@@ -272,17 +329,46 @@ class _MainMapPageState extends State<MainMapPage> {
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.ucm_mapapp',
-                maxZoom: 22,
-                maxNativeZoom: 19,
               ),
-              if (polygons.isNotEmpty)
-                PolygonLayer(polygons: polygons),
-              if (markers.isNotEmpty)
-                MarkerLayer(markers: markers),
+
+              // Polygons (sectores)
+              if (polygons.isNotEmpty) PolygonLayer(polygons: polygons),
+
+              // Ruta (polyline) si existe
+              if (_ruta != null)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _ruta!,
+                      strokeWidth: 5.0,
+                      color: Colors.red,
+                    ),
+                  ],
+                ),
+
+              // Markers (centroides)
+              if (markers.isNotEmpty) MarkerLayer(markers: markers),
             ],
           ),
 
-          // Cargar overlay durante la busqueda para una mejor UX
+          // Search bar positioned at top
+          Positioned(
+            top: 12,
+            left: 12,
+            right: 12,
+            child: _buildSearchBar(),
+          ),
+
+          // Search suggestions dropdown
+          if (_searchResults.isNotEmpty)
+            Positioned(
+              top: 68,
+              left: 12,
+              right: 12,
+              child: _buildSearchResults(),
+            ),
+
+          // Loading overlay
           if (_loading)
             Positioned.fill(
               child: Container(
@@ -291,7 +377,6 @@ class _MainMapPageState extends State<MainMapPage> {
               ),
             ),
 
-          // banner de error arriba, mapa aun es usable
           if (_errorMessage != null)
             Positioned(
               left: 8,
@@ -315,11 +400,7 @@ class _MainMapPageState extends State<MainMapPage> {
                         ),
                       ),
                       TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _errorMessage = null;
-                          });
-                        },
+                        onPressed: () => setState(() => _errorMessage = null),
                         child: const Text('Cerrar', style: TextStyle(color: Colors.white)),
                       ),
                     ],
@@ -331,11 +412,82 @@ class _MainMapPageState extends State<MainMapPage> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // Centrar mapa a la universidad
           _mapController.move(_campusCenter, 17.5);
+          _mapController.rotate(0);
         },
         backgroundColor: const Color(0xFF003B73),
-        child: const Icon(Icons.my_location),
+        child: const Icon(Icons.explore),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(30),
+      child: TextField(
+        controller: _searchController,
+        onChanged: _onSearchChanged,
+        decoration: InputDecoration(
+          hintText: 'Buscar sala (ej: J101)',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: () {
+              _searchController.clear();
+              setState(() => _searchResults = []);
+            },
+          )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        ),
+      ),
+    );
+  }
+
+  SectorModel? _getSectorById(int id) {
+    try {
+      return _sectores.firstWhere((s) => s.id == id);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Widget _buildSearchResults() {
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(8),
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.all(8),
+        children: _searchResults.map((sala) {
+          final SectorModel? sector = _getSectorById(sala.idSector);
+
+          final subtitle = sector != null ? sector.nombre : 'Sector desconocido';
+
+          return ListTile(
+            title: Text(sala.nombre),
+            subtitle: Text(subtitle),
+            trailing: IconButton(
+              icon: const Icon(
+                  Icons.directions,
+                  //color: Colors.green,
+              ),
+              onPressed: () async {
+                if (sector != null) {
+                  await _crearRutaHaciaSector(sector);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Sector no disponible')),
+                  );
+                }
+              },
+            ),
+            onTap: () => _onSalaSelected(sala),
+          );
+        }).toList(),
       ),
     );
   }
@@ -346,7 +498,7 @@ class _MainMapPageState extends State<MainMapPage> {
     }
 
     final sector = _sectorSeleccionado!;
-    final floors = _getPisos(sector);
+    final floors = sector.salas.map((c) => c.piso).toSet().toList()..sort((a,b) => b.compareTo(a));
 
     return Drawer(
       backgroundColor: Colors.white,
@@ -361,30 +513,17 @@ class _MainMapPageState extends State<MainMapPage> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      sector.nombre,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    child: Text(sector.nombre, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      setState(() => _sectorSeleccionado = null);
-                    },
-                  ),
+                  IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () {
+                    Navigator.of(context).pop();
+                    setState(() => _sectorSeleccionado = null);
+                  }),
                 ],
               ),
             ),
             if (sector.descripcion.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Text(sector.descripcion, style: const TextStyle(color: Colors.black54)),
-              ),
+              Padding(padding: const EdgeInsets.all(12.0), child: Text(sector.descripcion, style: const TextStyle(color: Colors.black54))),
             const Divider(height: 1),
             Expanded(
               child: ListView(
@@ -398,16 +537,22 @@ class _MainMapPageState extends State<MainMapPage> {
                     child: ExpansionTile(
                       leading: const Icon(Icons.layers, color: Color(0xFF003B73)),
                       title: Text('Piso $floor', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      children: rooms
-                          .map((r) => ListTile(
-                        title: Text(r.nombre),
-                        leading: const Icon(Icons.meeting_room, color: Color(0xFF003B73)),
-                        onTap: () {
-                          // Ejemplo: mostrar snackbar (reemplazar con comportamiento deseado)
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Seleccionada ${r.nombre}')));
-                        },
-                      ))
-                          .toList(),
+                      children: rooms.map((r) {
+                        return ListTile(
+                          title: Text(r.nombre),
+                          leading: const Icon(Icons.meeting_room, color: Color(0xFF003B73)),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.directions),
+                            onPressed: () async {
+                              // Crear ruta hacia la sala (usa el centroide del sector)
+                              await _crearRutaHaciaSector(sector);
+                            },
+                          ),
+                          onTap: () {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Seleccionada ${r.nombre}')));
+                          },
+                        );
+                      }).toList(),
                     ),
                   );
                 }).toList(),
